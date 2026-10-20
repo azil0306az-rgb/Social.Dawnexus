@@ -28,7 +28,7 @@ class DataService {
   }
 
   getAccounts(workspaceId: string): SocialAccount[] {
-    return this.cache.accounts.get(workspaceId) || INITIAL_ACCOUNTS.filter(a => a.workspaceId === workspaceId);
+    return this.cache.accounts.get(workspaceId) || [];
   }
 
   async connectAccount(account: Omit<SocialAccount, 'id' | 'lastSyncAt'>): Promise<SocialAccount> {

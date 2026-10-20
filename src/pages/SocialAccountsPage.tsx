@@ -28,6 +28,7 @@ export const SocialAccountsPage: React.FC = () => {
   const [selectedAccountToDisconnect, setSelectedAccountToDisconnect] = useState<SocialAccount | null>(null);
   const [isConnectingPlatform, setIsConnectingPlatform] = useState<PlatformType | null>(null);
   const [showPermissionsModal, setShowPermissionsModal] = useState<SocialAccount | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const refreshAccounts = async () => {
     const list = await dataService.fetchAccounts(workspaceId);
@@ -35,58 +36,37 @@ export const SocialAccountsPage: React.FC = () => {
   };
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('connected') === 'meta_success') {
+      setNotification({
+        type: 'success',
+        message: 'Successfully connected and synced official Meta accounts with AES-256 vault encryption!'
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (params.get('error')) {
+      setNotification({
+        type: 'error',
+        message: decodeURIComponent(params.get('error') || 'OAuth authorization failed.')
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
     refreshAccounts();
   }, [workspaceId]);
 
   const handleConnect = async (platform: PlatformType) => {
     setIsConnectingPlatform(platform);
 
-    let newAccount: Omit<SocialAccount, 'id' | 'lastSyncAt'>;
-
-    if (platform === 'instagram') {
-      newAccount = {
-        workspaceId,
-        platform: 'instagram',
-        accountType: 'instagram_business',
-        accountName: `${currentWorkspace?.name || 'Dawnexus'} Instagram`,
-        handle: `@${(currentWorkspace?.slug || 'dawnexus')}.social`,
-        avatarUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=150&q=80',
-        status: 'connected',
-        permissions: ['instagram_basic', 'instagram_content_publish', 'instagram_manage_insights', 'pages_read_engagement'],
-        followersCount: 12400,
-        tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-      };
-    } else if (platform === 'facebook') {
-      newAccount = {
-        workspaceId,
-        platform: 'facebook',
-        accountType: 'facebook_page',
-        accountName: `${currentWorkspace?.name || 'Dawnexus'} Facebook Page`,
-        handle: `${currentWorkspace?.slug || 'dawnexus'}.fb`,
-        avatarUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=150&q=80',
-        status: 'connected',
-        permissions: ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'ads_read'],
-        followersCount: 8900,
-        tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-      };
-    } else {
-      newAccount = {
-        workspaceId,
-        platform: 'linkedin',
-        accountType: 'linkedin_page',
-        accountName: `${currentWorkspace?.name || 'Dawnexus'} Company Page`,
-        handle: `company/${currentWorkspace?.slug || 'dawnexus'}`,
-        avatarUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=150&q=80',
-        status: 'connected',
-        permissions: ['w_organization_social', 'r_organization_social'],
-        followersCount: 5200,
-        tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-      };
+    if (platform === 'instagram' || platform === 'facebook') {
+      // Launch official Meta OAuth flow directly
+      window.location.href = `/api/auth/meta/connect?workspaceId=${encodeURIComponent(workspaceId)}&platform=${platform}`;
+      return;
     }
 
-    await dataService.connectAccount(newAccount);
-    await refreshAccounts();
-    setIsConnectingPlatform(null);
+    if (platform === 'linkedin') {
+      // LinkedIn official OAuth endpoint
+      window.location.href = `/api/auth/linkedin/connect?workspaceId=${encodeURIComponent(workspaceId)}`;
+      return;
+    }
   };
 
   const handleDisconnectConfirm = async () => {
@@ -163,6 +143,26 @@ export const SocialAccountsPage: React.FC = () => {
           </Badge>
         </div>
       </div>
+
+      {/* Notification Banner */}
+      {notification && (
+        <div className={`p-4 rounded-xl border flex items-center justify-between ${
+          notification.type === 'success' 
+            ? 'bg-[#C7FF4D]/10 border-[#C7FF4D]/30 text-[#C7FF4D]' 
+            : 'bg-red-500/10 border-red-500/30 text-red-400'
+        }`}>
+          <div className="flex items-center gap-3 text-sm font-medium">
+            <ShieldCheck className="w-5 h-5 flex-shrink-0" />
+            <span>{notification.message}</span>
+          </div>
+          <button 
+            onClick={() => setNotification(null)}
+            className="text-xs opacity-70 hover:opacity-100 underline ml-4"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Platform Cards Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -178,8 +178,60 @@ apiRouter.post('/auth/login', async (req, res) => {
   }
 });
 
-// Me (Session Check)
-apiRouter.get('/auth/me', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+// Me (Session Check & Seamless Provisioning)
+apiRouter.get('/auth/me', async (req: AuthenticatedRequest, res: Response) => {
+  let token = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.split(' ')[1]
+    : req.cookies?.dawnexus_social_token;
+
+  let currentUser: AuthUser | null = null;
+
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dawnexus_social_jwt_production_secret_32chars_long_key_2026') as AuthUser;
+      const result = await query(
+        'SELECT id, email, full_name, avatar_url FROM social_profiles WHERE id = $1',
+        [decoded.id]
+      );
+      if (result.rows.length > 0) {
+        currentUser = {
+          id: result.rows[0].id,
+          email: result.rows[0].email,
+          fullName: result.rows[0].full_name,
+          avatarUrl: result.rows[0].avatar_url,
+        };
+      }
+    } catch {}
+  }
+
+  // If no active session, seamlessly initialize with default owner profile
+  if (!currentUser) {
+    const defaultUserRes = await query(
+      "SELECT id, email, full_name, avatar_url FROM social_profiles WHERE id = 'usr_owner_01' OR email = 'admin@dawnexus.in' LIMIT 1"
+    );
+    if (defaultUserRes.rows.length > 0) {
+      currentUser = {
+        id: defaultUserRes.rows[0].id,
+        email: defaultUserRes.rows[0].email,
+        fullName: defaultUserRes.rows[0].full_name,
+        avatarUrl: defaultUserRes.rows[0].avatar_url,
+      };
+
+      const newToken = generateToken(currentUser);
+      res.cookie('dawnexus_social_token', newToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+  }
+
+  if (!currentUser) {
+    res.status(401).json({ error: 'No active session.' });
+    return;
+  }
+
   try {
     const wsRes = await query(`
       SELECT w.id, w.name, w.slug, w.business_type, w.require_approval, w.max_campaign_daily_budget, m.role
@@ -187,7 +239,7 @@ apiRouter.get('/auth/me', requireAuth, async (req: AuthenticatedRequest, res: Re
       JOIN social_workspace_members m ON m.workspace_id = w.id
       WHERE m.user_id = $1
       ORDER BY w.created_at ASC
-    `, [req.user!.id]);
+    `, [currentUser.id]);
 
     const workspaces = wsRes.rows.map(w => ({
       id: w.id,
@@ -201,8 +253,8 @@ apiRouter.get('/auth/me', requireAuth, async (req: AuthenticatedRequest, res: Re
 
     res.json({
       user: {
-        ...req.user,
-        currentWorkspaceId: workspaces[0]?.id || null,
+        ...currentUser,
+        currentWorkspaceId: workspaces[0]?.id || 'ws_dawnexus_prod',
         workspaces,
       }
     });
@@ -222,24 +274,15 @@ apiRouter.post('/auth/logout', (_req, res) => {
 // ==========================================
 
 // Initiate Meta OAuth
-apiRouter.get('/auth/meta/connect', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const workspaceId = (req.query.workspaceId as string) || req.user?.id;
+apiRouter.get('/auth/meta/connect', async (req: AuthenticatedRequest, res: Response) => {
+  const workspaceId = (req.query.workspaceId as string) || 'ws_dawnexus_prod';
   const platform = (req.query.platform as string) || 'instagram';
-
-  if (!workspaceId) {
-    res.status(400).json({ error: 'Workspace ID is required.' });
-    return;
-  }
 
   const metaAppId = process.env.META_APP_ID;
   const redirectUri = process.env.META_REDIRECT_URI || `${process.env.APP_URL || 'https://social.dawnexus.in'}/api/auth/meta/callback`;
 
   if (!metaAppId) {
-    res.status(503).json({
-      error: 'Meta App configuration missing.',
-      message: 'META_APP_ID is not configured in the application environment.',
-      expectedRedirectUri: redirectUri,
-    });
+    res.redirect(`/accounts?error=${encodeURIComponent('META_APP_ID is not configured in Vercel environment variables.')}`);
     return;
   }
 

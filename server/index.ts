@@ -3,8 +3,8 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import path from 'node:path';
+import fs from 'node:fs';
 import { mcpRouter } from './mcpServer.js';
 import { apiRouter } from './routes/apiRouter.js';
 import { pool, query } from './db.js';
@@ -12,11 +12,10 @@ import { startBackgroundScheduler, stopBackgroundScheduler } from './scheduler.j
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const app = express();
-const PORT = process.env.PORT || 3006;
+const PORT = parseInt(process.env.PORT || '3006', 10);
+
+app.set('trust proxy', 1);
 
 // Security Middleware
 app.use(helmet({
@@ -60,8 +59,8 @@ app.use('/api', apiRouter);
 app.use('/mcp', mcpRouter);
 
 // Production Static Serving
-if (process.env.NODE_ENV === 'production' || process.env.SERVE_STATIC === 'true') {
-  const distPath = path.join(__dirname, '../dist');
+const distPath = path.resolve('dist');
+if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
 
   app.get('*', (req, res, next) => {

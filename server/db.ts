@@ -7,13 +7,17 @@ if (!connectionString) {
   console.warn('[DB] WARNING: DATABASE_URL not set in environment.');
 }
 
-export const pool = new Pool({
-  connectionString,
-  ssl: { rejectUnauthorized: false },
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
-});
+export const pool = new Pool(
+  connectionString
+    ? {
+        connectionString,
+        ssl: { rejectUnauthorized: false },
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+      }
+    : undefined
+);
 
 pool.on('error', (err) => {
   console.error('[DB Pool Error]', err);

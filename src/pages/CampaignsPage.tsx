@@ -343,3 +343,4 @@ export const CampaignsPage: React.FC = () => {
     </div>
   );
 };
+

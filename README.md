@@ -58,3 +58,4 @@ npm start
 - **Messages Endpoint**: `https://social.dawnexus.in/mcp/messages`
 - **OpenAPI Schema (ChatGPT)**: `https://social.dawnexus.in/mcp/openapi.json`
 - **Authentication**: `Authorization: Bearer dwnx_live_<workspace_secret>`
+

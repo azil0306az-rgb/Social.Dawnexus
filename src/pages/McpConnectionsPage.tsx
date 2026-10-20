@@ -426,3 +426,4 @@ export const McpConnectionsPage: React.FC = () => {
     </div>
   );
 };
+

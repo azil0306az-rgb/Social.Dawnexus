@@ -137,3 +137,4 @@ export interface User {
   currentWorkspaceId: string;
   workspaces: Workspace[];
 }
+

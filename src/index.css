@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-primary: #050505;
+    --bg-secondary: #0B0B0B;
+    --bg-tertiary: #141414;
+    --text-primary: #FFFFFF;
+    --accent-lime: #C7FF4D;
+    --accent-lime-hover: #D4FF70;
+    --text-secondary: #A5A5A5;
+    --text-muted: #666666;
+    --border-main: #252525;
+    --border-subtle: #1C1C1C;
+    --card-bg: #0B0B0B;
+  }
+
+  body {
+    background-color: #050505;
+    color: #FFFFFF;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #050505;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #252525;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #C7FF4D;
+  }
+}
+
+/* Subtle tech grid background */
+.bg-grid-tech {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+}
+
+.glow-lime-sm {
+  box-shadow: 0 0 15px -3px rgba(199, 255, 77, 0.2);
+}
+
+.glow-lime-md {
+  box-shadow: 0 0 25px -4px rgba(199, 255, 77, 0.25);
+}
+
+.glow-lime-badge {
+  box-shadow: 0 0 8px 0 rgba(199, 255, 77, 0.35);
+}
+
+/* Custom smooth transitions */
+.transition-dawnexus {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Code / mono styles */
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}

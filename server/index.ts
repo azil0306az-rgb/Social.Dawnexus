@@ -63,7 +63,7 @@ const distPath = path.resolve('dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
 
-  app.get('*', (req, res, next) => {
+  app.get('{*path}', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/mcp')) {
       return next();
     }

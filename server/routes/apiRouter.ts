@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
-import { query, hashApiKey } from '../db.js';
+import crypto from 'crypto';
+import { query, hashApiKey, encryptSecret } from '../db.js';
 import { 
   requireAuth, 
   requireWorkspaceAccess, 
@@ -214,6 +215,208 @@ apiRouter.get('/auth/me', requireAuth, async (req: AuthenticatedRequest, res: Re
 apiRouter.post('/auth/logout', (_req, res) => {
   res.clearCookie('dawnexus_social_token');
   res.json({ message: 'Signed out successfully.' });
+});
+
+// ==========================================
+// 1.1 META (FACEBOOK & INSTAGRAM) OAUTH
+// ==========================================
+
+// Initiate Meta OAuth
+apiRouter.get('/auth/meta/connect', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const workspaceId = (req.query.workspaceId as string) || req.user?.id;
+  const platform = (req.query.platform as string) || 'instagram';
+
+  if (!workspaceId) {
+    res.status(400).json({ error: 'Workspace ID is required.' });
+    return;
+  }
+
+  const metaAppId = process.env.META_APP_ID;
+  const redirectUri = process.env.META_REDIRECT_URI || `${process.env.APP_URL || 'https://social.dawnexus.in'}/api/auth/meta/callback`;
+
+  if (!metaAppId) {
+    res.status(503).json({
+      error: 'Meta App configuration missing.',
+      message: 'META_APP_ID is not configured in the application environment.',
+      expectedRedirectUri: redirectUri,
+    });
+    return;
+  }
+
+  try {
+    const stateToken = `st_${crypto.randomBytes(24).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    await query(`
+      INSERT INTO social_oauth_states (state_token, workspace_id, platform, redirect_uri, expires_at)
+      VALUES ($1, $2, $3, $4, $5)
+    `, [stateToken, workspaceId, platform, redirectUri, expiresAt]);
+
+    const scopes = [
+      'pages_show_list',
+      'pages_read_engagement',
+      'pages_manage_posts',
+      'instagram_basic',
+      'instagram_content_publish',
+      'instagram_manage_insights',
+      'ads_read'
+    ];
+
+    const metaAuthUrl = new URL('https://www.facebook.com/v21.0/dialog/oauth');
+    metaAuthUrl.searchParams.set('client_id', metaAppId);
+    metaAuthUrl.searchParams.set('redirect_uri', redirectUri);
+    metaAuthUrl.searchParams.set('state', stateToken);
+    metaAuthUrl.searchParams.set('scope', scopes.join(','));
+    metaAuthUrl.searchParams.set('response_type', 'code');
+
+    res.redirect(metaAuthUrl.toString());
+  } catch (err: any) {
+    console.error('[Meta Connect Error]', err);
+    res.status(500).json({ error: 'Failed to initiate Meta OAuth flow.' });
+  }
+});
+
+// Meta OAuth Callback
+apiRouter.get('/auth/meta/callback', async (req, res) => {
+  const { code, state, error, error_description } = req.query;
+
+  if (error) {
+    console.error('[Meta OAuth Callback Denied]', error, error_description);
+    res.redirect(`/accounts?error=${encodeURIComponent(String(error_description || error))}`);
+    return;
+  }
+
+  if (!code || !state) {
+    res.status(400).send('Missing code or state parameter in Meta OAuth callback.');
+    return;
+  }
+
+  try {
+    const stateRes = await query(
+      'SELECT workspace_id, platform, redirect_uri, expires_at FROM social_oauth_states WHERE state_token = $1',
+      [String(state)]
+    );
+
+    if (stateRes.rows.length === 0) {
+      res.status(400).send('Invalid or expired OAuth state token.');
+      return;
+    }
+
+    const oauthState = stateRes.rows[0];
+    if (new Date(oauthState.expires_at) < new Date()) {
+      res.status(400).send('OAuth session has expired. Please initiate connection again.');
+      return;
+    }
+
+    // Clean up state token
+    await query('DELETE FROM social_oauth_states WHERE state_token = $1', [String(state)]);
+
+    const metaAppId = process.env.META_APP_ID;
+    const metaAppSecret = process.env.META_APP_SECRET;
+    const redirectUri = oauthState.redirect_uri;
+
+    if (!metaAppId || !metaAppSecret) {
+      res.status(500).send('Server configuration missing META_APP_ID or META_APP_SECRET.');
+      return;
+    }
+
+    // Step 1: Exchange code for user access token
+    const tokenUrl = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
+    tokenUrl.searchParams.set('client_id', metaAppId);
+    tokenUrl.searchParams.set('client_secret', metaAppSecret);
+    tokenUrl.searchParams.set('redirect_uri', redirectUri);
+    tokenUrl.searchParams.set('code', String(code));
+
+    const tokenResponse = await fetch(tokenUrl.toString());
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenResponse.ok || !tokenData.access_token) {
+      console.error('[Meta Token Exchange Error]', tokenData);
+      res.redirect(`/accounts?error=${encodeURIComponent(tokenData.error?.message || 'Token exchange failed')}`);
+      return;
+    }
+
+    // Step 2: Exchange for long-lived access token (60 days)
+    const longTokenUrl = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
+    longTokenUrl.searchParams.set('grant_type', 'fb_exchange_token');
+    longTokenUrl.searchParams.set('client_id', metaAppId);
+    longTokenUrl.searchParams.set('client_secret', metaAppSecret);
+    longTokenUrl.searchParams.set('fb_exchange_token', tokenData.access_token);
+
+    const longTokenRes = await fetch(longTokenUrl.toString());
+    const longTokenData = await longTokenRes.json();
+    const userAccessToken = longTokenData.access_token || tokenData.access_token;
+    const expiresInSeconds = longTokenData.expires_in || 60 * 24 * 60 * 60;
+    const tokenExpiresAt = new Date(Date.now() + expiresInSeconds * 1000);
+
+    // Step 3: Fetch Pages and connected Instagram Business accounts
+    const accountsUrl = `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url,followers_count}&access_token=${userAccessToken}`;
+    const accountsRes = await fetch(accountsUrl);
+    const accountsData = await accountsRes.json();
+
+    if (accountsData.data && accountsData.data.length > 0) {
+      for (const page of accountsData.data) {
+        const pageEncryptedToken = encryptSecret(page.access_token || userAccessToken);
+
+        // Store Facebook Page
+        if (oauthState.platform === 'facebook' || !page.instagram_business_account) {
+          const fbAccId = `acc_fb_${page.id}`;
+          await query(`
+            INSERT INTO social_connected_accounts (
+              id, workspace_id, platform, account_type, account_name, handle, 
+              access_token_encrypted, token_expires_at, permissions, status, last_sync_at
+            ) VALUES ($1, $2, 'facebook', 'facebook_page', $3, $4, $5, $6, $7, 'connected', NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              access_token_encrypted = EXCLUDED.access_token_encrypted,
+              token_expires_at = EXCLUDED.token_expires_at,
+              status = 'connected',
+              last_sync_at = NOW()
+          `, [
+            fbAccId,
+            oauthState.workspace_id,
+            page.name,
+            `@${page.name.toLowerCase().replace(/[^a-z0-9]+/g, '.')}`,
+            pageEncryptedToken,
+            tokenExpiresAt,
+            JSON.stringify(['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'ads_read'])
+          ]);
+        }
+
+        // Store Instagram Business account if attached
+        if (page.instagram_business_account) {
+          const ig = page.instagram_business_account;
+          const igAccId = `acc_ig_${ig.id}`;
+          await query(`
+            INSERT INTO social_connected_accounts (
+              id, workspace_id, platform, account_type, account_name, handle, avatar_url,
+              followers_count, access_token_encrypted, token_expires_at, permissions, status, last_sync_at
+            ) VALUES ($1, $2, 'instagram', 'instagram_business', $3, $4, $5, $6, $7, $8, $9, 'connected', NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              access_token_encrypted = EXCLUDED.access_token_encrypted,
+              token_expires_at = EXCLUDED.token_expires_at,
+              followers_count = EXCLUDED.followers_count,
+              status = 'connected',
+              last_sync_at = NOW()
+          `, [
+            igAccId,
+            oauthState.workspace_id,
+            ig.name || ig.username || `${page.name} Instagram`,
+            `@${ig.username}`,
+            ig.profile_picture_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=150&q=80',
+            ig.followers_count || 0,
+            pageEncryptedToken,
+            tokenExpiresAt,
+            JSON.stringify(['instagram_basic', 'instagram_content_publish', 'instagram_manage_insights', 'pages_read_engagement'])
+          ]);
+        }
+      }
+    }
+
+    res.redirect('/accounts?connected=meta_success');
+  } catch (err: any) {
+    console.error('[Meta Callback Error]', err);
+    res.redirect(`/accounts?error=${encodeURIComponent(err.message || 'OAuth callback failed')}`);
+  }
 });
 
 // ==========================================

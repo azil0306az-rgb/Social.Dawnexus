@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Calendar as CalendarIcon, 
   ChevronLeft, 
@@ -24,10 +24,18 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ onNavigateToComposer
   const { currentWorkspace } = useAuth();
   const workspaceId = currentWorkspace?.id || 'ws_dawnexus_prod';
 
-  const posts = dataService.getPosts(workspaceId);
+  const [posts, setPosts] = useState<Post[]>(() => dataService.getPosts(workspaceId));
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date(2026, 9, 1)); // October 2026
   const [filterPlatform, setFilterPlatform] = useState<PlatformType | 'all'>('all');
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+
+  useEffect(() => {
+    async function loadPosts() {
+      const psts = await dataService.fetchPosts(workspaceId);
+      setPosts(psts);
+    }
+    loadPosts();
+  }, [workspaceId]);
 
   // Generate 35 days for a 5-week calendar view
   const year = selectedMonth.getFullYear();

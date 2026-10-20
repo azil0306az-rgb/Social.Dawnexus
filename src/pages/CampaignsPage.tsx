@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Megaphone, 
   DollarSign, 
@@ -24,7 +24,7 @@ import { Button } from '../components/common/Button';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
 
 export const CampaignsPage: React.FC = () => {
-  const { currentWorkspace, isDemoMode } = useAuth();
+  const { currentWorkspace } = useAuth();
   const workspaceId = currentWorkspace?.id || 'ws_dawnexus_prod';
 
   const [campaigns, setCampaigns] = useState<AdCampaign[]>(() => dataService.getCampaigns(workspaceId));
@@ -40,9 +40,14 @@ export const CampaignsPage: React.FC = () => {
   const [budgetEditModalOpen, setBudgetEditModalOpen] = useState<AdCampaign | null>(null);
   const [newBudgetValue, setNewBudgetValue] = useState<number>(100);
 
-  const refreshCampaigns = () => {
-    setCampaigns(dataService.getCampaigns(workspaceId));
+  const refreshCampaigns = async () => {
+    const list = await dataService.fetchCampaigns(workspaceId);
+    setCampaigns(list);
   };
+
+  useEffect(() => {
+    refreshCampaigns();
+  }, [workspaceId]);
 
   const initiateStatusChange = (campaign: AdCampaign, newStatus: 'ACTIVE' | 'PAUSED') => {
     setPendingAction({
@@ -68,18 +73,18 @@ export const CampaignsPage: React.FC = () => {
     setConfirmModalOpen(true);
   };
 
-  const handleExecuteConfirmedAction = () => {
+  const handleExecuteConfirmedAction = async () => {
     if (!pendingAction) return;
 
     if (pendingAction.actionType === 'PAUSE') {
-      dataService.updateCampaignStatus(workspaceId, pendingAction.campaign.id, 'PAUSED');
+      await dataService.updateCampaignStatus(workspaceId, pendingAction.campaign.id, 'PAUSED');
     } else if (pendingAction.actionType === 'RESUME') {
-      dataService.updateCampaignStatus(workspaceId, pendingAction.campaign.id, 'ACTIVE');
+      await dataService.updateCampaignStatus(workspaceId, pendingAction.campaign.id, 'ACTIVE');
     } else if (pendingAction.actionType === 'UPDATE_BUDGET' && pendingAction.newBudget !== undefined) {
-      dataService.updateCampaignBudget(workspaceId, pendingAction.campaign.id, pendingAction.newBudget);
+      await dataService.updateCampaignBudget(workspaceId, pendingAction.campaign.id, pendingAction.newBudget);
     }
 
-    refreshCampaigns();
+    await refreshCampaigns();
     setPendingAction(null);
   };
 

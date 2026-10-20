@@ -48,11 +48,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   onSelectTab,
   children,
 }) => {
-  const { user, currentWorkspace, workspaces, switchWorkspace, isDemoMode, setIsDemoMode, logout } = useAuth();
+  const { user, currentWorkspace, workspaces, switchWorkspace, logout } = useAuth();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   const navItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -73,28 +72,27 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   return (
     <div className="min-h-screen bg-[#050505] text-white flex flex-col selection:bg-[#C7FF4D] selection:text-[#050505]">
-      {/* Top Banner (Demo / Sandbox vs Live Mode Indicator) */}
+      {/* Top Banner (Production Release Status) */}
       <aside aria-label="Environment Mode Indicator" className="w-full bg-[#0B0B0B] border-b border-[#252525] px-4 py-1.5 flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-[#C7FF4D] shadow-[0_0_6px_#C7FF4D]" />
-          <span className="text-[#A5A5A5]">Environment:</span>
-          <span className="font-semibold text-white">
-            {isDemoMode ? 'Verified Sandbox & Multi-Tenant Engine' : 'Production Live API Gateway'}
-          </span>
+          <span className="text-[#A5A5A5]">Dawnexus Social:</span>
+          <span className="font-semibold text-white font-mono">v1.0.0 Production</span>
           <span className="text-[#666666] hidden sm:inline">|</span>
-          <span className="text-[#A5A5A5] hidden sm:inline">Official Node: <code className="text-white font-mono">social.dawnexus.in</code></span>
+          <span className="text-[#A5A5A5] hidden sm:inline">Node: <code className="text-white font-mono">social.dawnexus.in</code></span>
+          <span className="text-[#666666] hidden md:inline">|</span>
+          <span className="text-[#C7FF4D] hidden md:inline font-mono">Database: Supabase PostgreSQL (RLS Active)</span>
         </div>
 
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <span className="text-[#A5A5A5] text-[11px] hidden md:inline">Simulated Live Responses</span>
-            <input 
-              type="checkbox"
-              checked={isDemoMode}
-              onChange={(e) => setIsDemoMode(e.target.checked)}
-              className="accent-[#C7FF4D] w-3.5 h-3.5 rounded cursor-pointer"
-            />
-          </label>
+        <div className="flex items-center gap-4">
+          <a
+            href="/api/health"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#A5A5A5] hover:text-[#C7FF4D] transition-colors text-[11px] font-mono hidden sm:inline"
+          >
+            API Health
+          </a>
           <a
             href="https://dawnexus.in"
             target="_blank"

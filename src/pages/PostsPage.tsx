@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   PenTool, 
   Sparkles, 
@@ -39,9 +39,14 @@ export const PostsPage: React.FC = () => {
   const [previewPlatform, setPreviewPlatform] = useState<PlatformType>('instagram');
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
 
-  const refreshPosts = () => {
-    setPosts(dataService.getPosts(workspaceId));
+  const refreshPosts = async () => {
+    const list = await dataService.fetchPosts(workspaceId);
+    setPosts(list);
   };
+
+  useEffect(() => {
+    refreshPosts();
+  }, [workspaceId]);
 
   const togglePlatform = (p: PlatformType) => {
     setTargetPlatforms(prev => 
@@ -75,10 +80,10 @@ export const PostsPage: React.FC = () => {
     setMediaList(prev => [...prev, newMedia]);
   };
 
-  const handleCreatePost = (status: PostStatus) => {
+  const handleCreatePost = async (status: PostStatus) => {
     if (!caption.trim()) return;
 
-    dataService.createPost({
+    await dataService.createPost({
       workspaceId,
       caption,
       media: mediaList,
@@ -92,19 +97,19 @@ export const PostsPage: React.FC = () => {
     setCaption('');
     setMediaList([]);
     setScheduledDate('');
-    refreshPosts();
+    await refreshPosts();
     setSaveSuccessNotice(`Post successfully ${status === 'scheduled' ? 'scheduled' : 'saved as draft'}!`);
     setTimeout(() => setSaveSuccessNotice(null), 3000);
   };
 
-  const handleApprove = (postId: string) => {
-    dataService.updatePostStatus(workspaceId, postId, 'approved', user?.fullName || 'Admin');
-    refreshPosts();
+  const handleApprove = async (postId: string) => {
+    await dataService.updatePostStatus(workspaceId, postId, 'approved', user?.fullName || 'Admin');
+    await refreshPosts();
   };
 
-  const handleDelete = (postId: string) => {
-    dataService.deletePost(workspaceId, postId);
-    refreshPosts();
+  const handleDelete = async (postId: string) => {
+    await dataService.deletePost(workspaceId, postId);
+    await refreshPosts();
   };
 
   const filteredPosts = posts.filter(p => {

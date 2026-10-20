@@ -1,10 +1,10 @@
 {
   "buildCommand": "vite build",
   "outputDirectory": "dist",
-  "rewrites": [
+  "crons": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "path": "/api/cron/process-jobs",
+      "schedule": "*/5 * * * *"
     }
   ],
   "headers": [
@@ -25,6 +25,20 @@
           "value": "public, max-age=31536000, immutable"
         }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/mcp/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

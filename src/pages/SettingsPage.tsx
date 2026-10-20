@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Settings, 
   Building2, 
@@ -25,8 +25,15 @@ export const SettingsPage: React.FC = () => {
   const [requireApproval, setRequireApproval] = useState(currentWorkspace?.requireApprovalForPublishing ?? true);
   const [maxSpendLimit, setMaxSpendLimit] = useState(currentWorkspace?.maxCampaignDailySpendLimit || 500);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [auditLogs, setAuditLogs] = useState(() => dataService.getAuditLogs(workspaceId));
 
-  const auditLogs = dataService.getAuditLogs(workspaceId);
+  useEffect(() => {
+    async function loadLogs() {
+      const logs = await dataService.fetchAuditLogs(workspaceId);
+      setAuditLogs(logs);
+    }
+    loadLogs();
+  }, [workspaceId]);
 
   const handleSaveWorkspaceSettings = async () => {
     await updateWorkspaceSettings({

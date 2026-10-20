@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, 
   AlertTriangle, 
@@ -20,7 +20,7 @@ import { Button } from '../components/common/Button';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
 
 export const SocialAccountsPage: React.FC = () => {
-  const { currentWorkspace, isDemoMode } = useAuth();
+  const { currentWorkspace } = useAuth();
   const workspaceId = currentWorkspace?.id || 'ws_dawnexus_prod';
 
   const [accounts, setAccounts] = useState<SocialAccount[]>(() => dataService.getAccounts(workspaceId));
@@ -29,14 +29,17 @@ export const SocialAccountsPage: React.FC = () => {
   const [isConnectingPlatform, setIsConnectingPlatform] = useState<PlatformType | null>(null);
   const [showPermissionsModal, setShowPermissionsModal] = useState<SocialAccount | null>(null);
 
-  const refreshAccounts = () => {
-    setAccounts(dataService.getAccounts(workspaceId));
+  const refreshAccounts = async () => {
+    const list = await dataService.fetchAccounts(workspaceId);
+    setAccounts(list);
   };
+
+  useEffect(() => {
+    refreshAccounts();
+  }, [workspaceId]);
 
   const handleConnect = async (platform: PlatformType) => {
     setIsConnectingPlatform(platform);
-    // Simulate official OAuth authorization roundtrip
-    await new Promise(r => setTimeout(r, 700));
 
     let newAccount: Omit<SocialAccount, 'id' | 'lastSyncAt'>;
 
@@ -52,7 +55,6 @@ export const SocialAccountsPage: React.FC = () => {
         permissions: ['instagram_basic', 'instagram_content_publish', 'instagram_manage_insights', 'pages_read_engagement'],
         followersCount: 12400,
         tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-        isMock: isDemoMode,
       };
     } else if (platform === 'facebook') {
       newAccount = {
@@ -66,7 +68,6 @@ export const SocialAccountsPage: React.FC = () => {
         permissions: ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'ads_read'],
         followersCount: 8900,
         tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-        isMock: isDemoMode,
       };
     } else {
       newAccount = {
@@ -80,19 +81,18 @@ export const SocialAccountsPage: React.FC = () => {
         permissions: ['w_organization_social', 'r_organization_social'],
         followersCount: 5200,
         tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-        isMock: isDemoMode,
       };
     }
 
-    dataService.connectAccount(newAccount);
-    refreshAccounts();
+    await dataService.connectAccount(newAccount);
+    await refreshAccounts();
     setIsConnectingPlatform(null);
   };
 
-  const handleDisconnectConfirm = () => {
+  const handleDisconnectConfirm = async () => {
     if (!selectedAccountToDisconnect) return;
-    dataService.disconnectAccount(workspaceId, selectedAccountToDisconnect.id);
-    refreshAccounts();
+    await dataService.disconnectAccount(workspaceId, selectedAccountToDisconnect.id);
+    await refreshAccounts();
   };
 
   const handleReconnect = (acc: SocialAccount) => {

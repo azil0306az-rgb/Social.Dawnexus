@@ -6,6 +6,9 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { mcpRouter } from './mcpServer.js';
+import { apiRouter } from './routes/apiRouter.js';
+import { pool, query } from './db.js';
+import { startBackgroundScheduler, stopBackgroundScheduler } from './scheduler.js';
 
 dotenv.config();
 
@@ -27,55 +30,67 @@ app.use(cors({
 }));
 
 app.use(cookieParser());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
-// Health Check Endpoint
-app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'Dawnexus Social API & MCP Gateway',
-    timestamp: new Date().toISOString(),
-    node: 'social.dawnexus.in',
-    version: '1.0.0'
-  });
+// Health Check Endpoint (Verifies real Supabase database)
+app.get('/api/health', async (_req, res) => {
+  try {
+    const dbRes = await query('SELECT count(*) as count FROM social_workspaces');
+    res.json({
+      status: 'healthy',
+      version: '1.0.0',
+      service: 'Dawnexus Social Production API & MCP Gateway',
+      database: 'Supabase PostgreSQL (Connected)',
+      workspacesCount: Number(dbRes.rows[0].count),
+      timestamp: new Date().toISOString(),
+      node: 'social.dawnexus.in'
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      status: 'degraded',
+      error: err.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
-// Mount Model Context Protocol (MCP) Router
+// Mount Routes
+app.use('/api', apiRouter);
 app.use('/mcp', mcpRouter);
 
-// API Mock / Fallback routes for multi-tenant state
-app.get('/api/meta/status', (_req, res) => {
-  res.json({
-    platform: 'Meta Graph API',
-    apiVersion: 'v21.0',
-    appMode: process.env.NODE_ENV === 'production' ? 'Live' : 'Development / Sandbox',
-    supportedFeatures: ['Pages Feed', 'Instagram Business Container', 'Ad Accounts Insights'],
-    reviewStatus: 'Ready for App Review'
-  });
-});
-
-app.get('/api/linkedin/status', (_req, res) => {
-  res.json({
-    platform: 'LinkedIn REST API',
-    apiVersion: '202602',
-    supportedFeatures: ['Share on LinkedIn', 'Organization Posts (Community Management)'],
-    approvalStatus: 'Configured'
-  });
-});
-
 // Production Static Serving
-if (process.env.NODE_ENV === 'production') {
+if (process.env.NODE_ENV === 'production' || process.env.SERVE_STATIC === 'true') {
   const distPath = path.join(__dirname, '../dist');
   app.use(express.static(distPath));
 
-  app.get('*', (_req, res) => {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/mcp')) {
+      return next();
+    }
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`[Dawnexus Social] Server running on http://localhost:${PORT}`);
-  console.log(`[Dawnexus Social] Remote MCP SSE Endpoint: http://localhost:${PORT}/mcp/sse`);
-});
+// Start Server & Scheduler (when running standalone)
+if (!process.env.VERCEL) {
+  const server = app.listen(PORT, () => {
+    console.log(`[Dawnexus Social v1.0.0] Production Server running on port ${PORT}`);
+    console.log(`[Dawnexus Social v1.0.0] Remote MCP SSE Endpoint: http://localhost:${PORT}/mcp/sse`);
 
+    // Start background publishing worker
+    startBackgroundScheduler(30000);
+  });
+
+  // Graceful Shutdown
+  process.on('SIGTERM', async () => {
+    console.log('[Shutdown] SIGTERM received. Closing background scheduler and pool...');
+    stopBackgroundScheduler();
+    server.close(() => {
+      pool.end();
+      process.exit(0);
+    });
+  });
+}
+
+export default app;

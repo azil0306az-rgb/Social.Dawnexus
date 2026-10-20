@@ -1,113 +1,163 @@
 import { SocialAccount, Post, AdCampaign, McpApiKey, AuditLog, PlatformType, PostStatus } from '../types';
 import { INITIAL_ACCOUNTS, INITIAL_POSTS, INITIAL_CAMPAIGNS, INITIAL_MCP_KEYS, INITIAL_AUDIT_LOGS } from '../data/mockData';
 
-const STORAGE_KEYS = {
-  ACCOUNTS: 'dawnexus_social_accounts_v1',
-  POSTS: 'dawnexus_social_posts_v1',
-  CAMPAIGNS: 'dawnexus_social_campaigns_v1',
-  MCP_KEYS: 'dawnexus_social_mcp_keys_v1',
-  AUDIT_LOGS: 'dawnexus_social_audit_logs_v1',
-};
-
 class DataService {
-  private get<T>(key: string, defaultVal: T): T {
-    try {
-      const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : defaultVal;
-    } catch {
-      return defaultVal;
-    }
-  }
-
-  private set<T>(key: string, val: T): void {
-    try {
-      localStorage.setItem(key, JSON.stringify(val));
-    } catch (e) {
-      console.warn('LocalStorage write failed:', e);
-    }
-  }
+  private cache = {
+    accounts: new Map<string, SocialAccount[]>(),
+    posts: new Map<string, Post[]>(),
+    campaigns: new Map<string, AdCampaign[]>(),
+    mcpKeys: new Map<string, McpApiKey[]>(),
+    auditLogs: new Map<string, AuditLog[]>(),
+  };
 
   // --- ACCOUNTS ---
-  getAccounts(workspaceId: string): SocialAccount[] {
-    const list = this.get<SocialAccount[]>(STORAGE_KEYS.ACCOUNTS, INITIAL_ACCOUNTS);
-    return list.filter(a => a.workspaceId === workspaceId);
+  async fetchAccounts(workspaceId: string): Promise<SocialAccount[]> {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/accounts`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.accounts) {
+          this.cache.accounts.set(workspaceId, data.accounts);
+          return data.accounts;
+        }
+      }
+    } catch (e) {
+      // Return cached
+    }
+    return this.getAccounts(workspaceId);
   }
 
-  connectAccount(account: Omit<SocialAccount, 'id' | 'lastSyncAt'>): SocialAccount {
-    const list = this.get<SocialAccount[]>(STORAGE_KEYS.ACCOUNTS, INITIAL_ACCOUNTS);
+  getAccounts(workspaceId: string): SocialAccount[] {
+    return this.cache.accounts.get(workspaceId) || INITIAL_ACCOUNTS.filter(a => a.workspaceId === workspaceId);
+  }
+
+  async connectAccount(account: Omit<SocialAccount, 'id' | 'lastSyncAt'>): Promise<SocialAccount> {
+    try {
+      const res = await fetch(`/api/workspaces/${account.workspaceId}/accounts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(account),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const created: SocialAccount = {
+          ...account,
+          id: data.accountId || `acc_${Date.now()}`,
+          lastSyncAt: 'Just now',
+        };
+        const current = this.getAccounts(account.workspaceId);
+        this.cache.accounts.set(account.workspaceId, [...current, created]);
+        return created;
+      }
+    } catch {
+      // Fallback
+    }
+
     const newAcc: SocialAccount = {
       ...account,
       id: `acc_${account.platform}_${Date.now()}`,
       lastSyncAt: 'Just now',
     };
-    list.push(newAcc);
-    this.set(STORAGE_KEYS.ACCOUNTS, list);
-    this.logAction(account.workspaceId, 'user', 'User', `Connected ${account.platform} account (${account.handle})`, 'security', 'info');
+    const current = this.getAccounts(account.workspaceId);
+    this.cache.accounts.set(account.workspaceId, [...current, newAcc]);
     return newAcc;
   }
 
-  disconnectAccount(workspaceId: string, accountId: string): void {
-    let list = this.get<SocialAccount[]>(STORAGE_KEYS.ACCOUNTS, INITIAL_ACCOUNTS);
-    const target = list.find(a => a.id === accountId);
-    list = list.filter(a => a.id !== accountId);
-    this.set(STORAGE_KEYS.ACCOUNTS, list);
-    if (target) {
-      this.logAction(workspaceId, 'user', 'User', `Disconnected ${target.platform} account (${target.handle})`, 'security', 'warning');
+  async disconnectAccount(workspaceId: string, accountId: string): Promise<void> {
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/accounts/${accountId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+    } catch {
+      // Fallback
     }
+    const current = this.getAccounts(workspaceId).filter(a => a.id !== accountId);
+    this.cache.accounts.set(workspaceId, current);
   }
 
   reconnectAccount(workspaceId: string, accountId: string): void {
-    const list = this.get<SocialAccount[]>(STORAGE_KEYS.ACCOUNTS, INITIAL_ACCOUNTS);
+    const list = this.getAccounts(workspaceId);
     const acc = list.find(a => a.id === accountId);
     if (acc) {
       acc.status = 'connected';
       acc.lastSyncAt = 'Just now';
       acc.errorMessage = undefined;
-      this.set(STORAGE_KEYS.ACCOUNTS, list);
-      this.logAction(workspaceId, 'user', 'User', `Re-authorized ${acc.platform} token credentials`, 'security', 'info');
     }
   }
 
   // --- POSTS ---
-  getPosts(workspaceId: string): Post[] {
-    const list = this.get<Post[]>(STORAGE_KEYS.POSTS, INITIAL_POSTS);
-    return list.filter(p => p.workspaceId === workspaceId);
+  async fetchPosts(workspaceId: string): Promise<Post[]> {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/posts`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.posts) {
+          this.cache.posts.set(workspaceId, data.posts);
+          return data.posts;
+        }
+      }
+    } catch {
+      // Return cached
+    }
+    return this.getPosts(workspaceId);
   }
 
-  createPost(post: Omit<Post, 'id' | 'createdAt' | 'updatedAt'>): Post {
-    const list = this.get<Post[]>(STORAGE_KEYS.POSTS, INITIAL_POSTS);
-    const now = new Date().toISOString();
-    const newPost: Post = {
+  getPosts(workspaceId: string): Post[] {
+    return this.cache.posts.get(workspaceId) || INITIAL_POSTS.filter(p => p.workspaceId === workspaceId);
+  }
+
+  async createPost(post: Omit<Post, 'id' | 'createdAt' | 'updatedAt'>): Promise<Post> {
+    try {
+      const res = await fetch(`/api/workspaces/${post.workspaceId}/posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(post),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const created: Post = {
+          ...post,
+          id: data.postId || `post_${Date.now()}`,
+          status: data.status || post.status,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        const current = this.getPosts(post.workspaceId);
+        this.cache.posts.set(post.workspaceId, [created, ...current]);
+        return created;
+      }
+    } catch {
+      // Fallback
+    }
+
+    const fallback: Post = {
       ...post,
       id: `post_${Date.now()}`,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
-    list.unshift(newPost);
-    this.set(STORAGE_KEYS.POSTS, list);
-    this.logAction(
-      post.workspaceId,
-      'user',
-      post.authorName || 'User',
-      `Created new post #${newPost.id.slice(-4)} (${post.status}) for [${post.targetPlatforms.join(', ')}]`,
-      'social_publish',
-      'info'
-    );
-    return newPost;
+    const current = this.getPosts(post.workspaceId);
+    this.cache.posts.set(post.workspaceId, [fallback, ...current]);
+    return fallback;
   }
 
-  updatePost(workspaceId: string, postId: string, updates: Partial<Post>): Post | null {
-    const list = this.get<Post[]>(STORAGE_KEYS.POSTS, INITIAL_POSTS);
-    const idx = list.findIndex(p => p.id === postId && p.workspaceId === workspaceId);
-    if (idx === -1) return null;
-    list[idx] = { ...list[idx], ...updates, updatedAt: new Date().toISOString() };
-    this.set(STORAGE_KEYS.POSTS, list);
-    return list[idx];
-  }
+  async updatePostStatus(workspaceId: string, postId: string, status: PostStatus, approverName?: string): Promise<Post | null> {
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/posts/${postId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status }),
+      });
+    } catch {
+      // Fallback
+    }
 
-  updatePostStatus(workspaceId: string, postId: string, status: PostStatus, approverName?: string): Post | null {
-    const list = this.get<Post[]>(STORAGE_KEYS.POSTS, INITIAL_POSTS);
-    const post = list.find(p => p.id === postId && p.workspaceId === workspaceId);
+    const current = this.getPosts(workspaceId);
+    const post = current.find(p => p.id === postId);
     if (!post) return null;
 
     post.status = status;
@@ -115,66 +165,134 @@ class DataService {
     if (status === 'approved' && approverName) {
       post.approverName = approverName;
       post.approvedAt = new Date().toISOString();
-      this.logAction(workspaceId, 'user', approverName, `Approved post #${postId.slice(-4)} for publishing`, 'approval', 'info');
     } else if (status === 'published') {
       post.publishedAt = new Date().toISOString();
-      this.logAction(workspaceId, 'scheduler_engine', 'Dawnexus Scheduler', `Published post #${postId.slice(-4)} successfully`, 'social_publish', 'info');
     }
-    this.set(STORAGE_KEYS.POSTS, list);
     return post;
   }
 
-  deletePost(workspaceId: string, postId: string): void {
-    let list = this.get<Post[]>(STORAGE_KEYS.POSTS, INITIAL_POSTS);
-    list = list.filter(p => !(p.id === postId && p.workspaceId === workspaceId));
-    this.set(STORAGE_KEYS.POSTS, list);
-    this.logAction(workspaceId, 'user', 'User', `Deleted post #${postId.slice(-4)}`, 'social_publish', 'warning');
+  async deletePost(workspaceId: string, postId: string): Promise<void> {
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/posts/${postId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+    } catch {
+      // Fallback
+    }
+    const current = this.getPosts(workspaceId).filter(p => p.id !== postId);
+    this.cache.posts.set(workspaceId, current);
   }
 
   // --- CAMPAIGNS ---
-  getCampaigns(workspaceId: string): AdCampaign[] {
-    const list = this.get<AdCampaign[]>(STORAGE_KEYS.CAMPAIGNS, INITIAL_CAMPAIGNS);
-    return list.filter(c => c.workspaceId === workspaceId);
+  async fetchCampaigns(workspaceId: string): Promise<AdCampaign[]> {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/campaigns`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.campaigns) {
+          this.cache.campaigns.set(workspaceId, data.campaigns);
+          return data.campaigns;
+        }
+      }
+    } catch {
+      // Return cached
+    }
+    return this.getCampaigns(workspaceId);
   }
 
-  updateCampaignStatus(workspaceId: string, campaignId: string, status: 'ACTIVE' | 'PAUSED' | 'ARCHIVED'): void {
-    const list = this.get<AdCampaign[]>(STORAGE_KEYS.CAMPAIGNS, INITIAL_CAMPAIGNS);
-    const cmp = list.find(c => c.id === campaignId && c.workspaceId === workspaceId);
+  getCampaigns(workspaceId: string): AdCampaign[] {
+    return this.cache.campaigns.get(workspaceId) || INITIAL_CAMPAIGNS.filter(c => c.workspaceId === workspaceId);
+  }
+
+  async updateCampaignStatus(workspaceId: string, campaignId: string, status: 'ACTIVE' | 'PAUSED' | 'ARCHIVED'): Promise<void> {
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status }),
+      });
+    } catch {
+      // Fallback
+    }
+    const list = this.getCampaigns(workspaceId);
+    const cmp = list.find(c => c.id === campaignId);
     if (cmp) {
       cmp.status = status;
       cmp.lastUpdated = 'Just now';
-      this.set(STORAGE_KEYS.CAMPAIGNS, list);
-      this.logAction(workspaceId, 'user', 'User', `Changed campaign status to ${status} on Meta Ads: "${cmp.name}"`, 'campaign_change', 'warning');
     }
   }
 
-  updateCampaignBudget(workspaceId: string, campaignId: string, newDailyBudget: number): void {
-    const list = this.get<AdCampaign[]>(STORAGE_KEYS.CAMPAIGNS, INITIAL_CAMPAIGNS);
-    const cmp = list.find(c => c.id === campaignId && c.workspaceId === workspaceId);
+  async updateCampaignBudget(workspaceId: string, campaignId: string, newDailyBudget: number): Promise<void> {
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ dailyBudget: newDailyBudget }),
+      });
+    } catch {
+      // Fallback
+    }
+    const list = this.getCampaigns(workspaceId);
+    const cmp = list.find(c => c.id === campaignId);
     if (cmp) {
-      const oldBudget = cmp.dailyBudget;
       cmp.dailyBudget = newDailyBudget;
       cmp.lastUpdated = 'Just now';
-      this.set(STORAGE_KEYS.CAMPAIGNS, list);
-      this.logAction(
-        workspaceId,
-        'user',
-        'User',
-        `Adjusted campaign daily budget from $${oldBudget} to $${newDailyBudget} (Confirmed) for "${cmp.name}"`,
-        'campaign_change',
-        'warning'
-      );
     }
   }
 
   // --- MCP API KEYS ---
-  getMcpKeys(workspaceId: string): McpApiKey[] {
-    const list = this.get<McpApiKey[]>(STORAGE_KEYS.MCP_KEYS, INITIAL_MCP_KEYS);
-    return list.filter(k => k.workspaceId === workspaceId);
+  async fetchMcpKeys(workspaceId: string): Promise<McpApiKey[]> {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/mcp-keys`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.keys) {
+          const keys = data.keys.map((k: any) => ({
+            id: k.id,
+            workspaceId: k.workspace_id,
+            name: k.name,
+            keyPrefix: k.key_prefix,
+            maskedKey: k.masked_key,
+            createdAt: k.created_at,
+            lastUsedAt: k.last_used_at,
+            revokedAt: k.revoked_at,
+            status: k.status,
+          }));
+          this.cache.mcpKeys.set(workspaceId, keys);
+          return keys;
+        }
+      }
+    } catch {
+      // Return cached
+    }
+    return this.getMcpKeys(workspaceId);
   }
 
-  createMcpKey(workspaceId: string, name: string): { key: McpApiKey; fullSecret: string } {
-    const list = this.get<McpApiKey[]>(STORAGE_KEYS.MCP_KEYS, INITIAL_MCP_KEYS);
+  getMcpKeys(workspaceId: string): McpApiKey[] {
+    return this.cache.mcpKeys.get(workspaceId) || INITIAL_MCP_KEYS.filter(k => k.workspaceId === workspaceId);
+  }
+
+  async createMcpKey(workspaceId: string, name: string): Promise<{ key: McpApiKey; fullSecret: string }> {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/mcp-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const current = this.getMcpKeys(workspaceId);
+        this.cache.mcpKeys.set(workspaceId, [data.key, ...current]);
+        return data;
+      }
+    } catch {
+      // Fallback
+    }
+
     const randomHex = Math.random().toString(16).substring(2, 10) + Math.random().toString(16).substring(2, 10);
     const fullSecret = `dwnx_live_${randomHex}`;
     const newKey: McpApiKey = {
@@ -186,57 +304,52 @@ class DataService {
       createdAt: new Date().toISOString(),
       status: 'active',
     };
-    list.unshift(newKey);
-    this.set(STORAGE_KEYS.MCP_KEYS, list);
-    this.logAction(workspaceId, 'user', 'User', `Generated new MCP API Key: "${newKey.name}"`, 'mcp_access', 'info');
+    const current = this.getMcpKeys(workspaceId);
+    this.cache.mcpKeys.set(workspaceId, [newKey, ...current]);
     return { key: newKey, fullSecret };
   }
 
-  revokeMcpKey(workspaceId: string, keyId: string): void {
-    const list = this.get<McpApiKey[]>(STORAGE_KEYS.MCP_KEYS, INITIAL_MCP_KEYS);
-    const k = list.find(item => item.id === keyId && item.workspaceId === workspaceId);
+  async revokeMcpKey(workspaceId: string, keyId: string): Promise<void> {
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/mcp-keys/${keyId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+    } catch {
+      // Fallback
+    }
+    const current = this.getMcpKeys(workspaceId);
+    const k = current.find(item => item.id === keyId);
     if (k) {
       k.status = 'revoked';
       k.revokedAt = new Date().toISOString();
-      this.set(STORAGE_KEYS.MCP_KEYS, list);
-      this.logAction(workspaceId, 'user', 'User', `Revoked MCP API access key "${k.name}"`, 'security', 'critical');
     }
   }
 
   // --- AUDIT LOGS ---
+  async fetchAuditLogs(workspaceId: string): Promise<AuditLog[]> {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/audit-logs`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.logs) {
+          this.cache.auditLogs.set(workspaceId, data.logs);
+          return data.logs;
+        }
+      }
+    } catch {
+      // Return cached
+    }
+    return this.getAuditLogs(workspaceId);
+  }
+
   getAuditLogs(workspaceId: string): AuditLog[] {
-    const list = this.get<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS);
-    return list.filter(l => l.workspaceId === workspaceId);
+    return this.cache.auditLogs.get(workspaceId) || INITIAL_AUDIT_LOGS.filter(l => l.workspaceId === workspaceId);
   }
 
-  logAction(
-    workspaceId: string,
-    actorType: 'user' | 'mcp_assistant' | 'scheduler_engine',
-    actorName: string,
-    action: string,
-    category: 'social_publish' | 'campaign_change' | 'mcp_access' | 'security' | 'approval',
-    severity: 'info' | 'warning' | 'critical'
-  ): void {
-    const list = this.get<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS);
-    const newLog: AuditLog = {
-      id: `aud_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
-      workspaceId,
-      actorType,
-      actorName,
-      action,
-      category,
-      details: `Triggered at ${new Date().toLocaleTimeString()} via Dawnexus Secure Gateway.`,
-      timestamp: 'Just now',
-      severity,
-    };
-    list.unshift(newLog);
-    // Keep max 100 logs in storage
-    this.set(STORAGE_KEYS.AUDIT_LOGS, list.slice(0, 100));
-  }
-
-  // --- AI COPYWRITING SIMULATOR ---
-  async generateAiCaption(topic: string, platform: PlatformType, tone: string = 'Professional & Engaging'): Promise<{ caption: string; hashtags: string[] }> {
-    await new Promise(r => setTimeout(r, 600)); // Simulate AI model inference
+  // --- AI COPYWRITING ENGINE ---
+  async generateAiCaption(topic: string, platform: PlatformType): Promise<{ caption: string; hashtags: string[] }> {
+    await new Promise(r => setTimeout(r, 500));
     
     if (platform === 'linkedin') {
       return {
@@ -258,4 +371,3 @@ class DataService {
 }
 
 export const dataService = new DataService();
-

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Share2, 
   PenTool, 
@@ -31,10 +31,23 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
   const { currentWorkspace } = useAuth();
   const workspaceId = currentWorkspace?.id || 'ws_dawnexus_prod';
 
-  const accounts = dataService.getAccounts(workspaceId);
-  const posts = dataService.getPosts(workspaceId);
-  const campaigns = dataService.getCampaigns(workspaceId);
-  const mcpKeys = dataService.getMcpKeys(workspaceId);
+  const [accounts, setAccounts] = useState(() => dataService.getAccounts(workspaceId));
+  const [posts, setPosts] = useState(() => dataService.getPosts(workspaceId));
+  const [campaigns, setCampaigns] = useState(() => dataService.getCampaigns(workspaceId));
+
+  useEffect(() => {
+    async function loadData() {
+      const [accs, psts, cmps] = await Promise.all([
+        dataService.fetchAccounts(workspaceId),
+        dataService.fetchPosts(workspaceId),
+        dataService.fetchCampaigns(workspaceId),
+      ]);
+      setAccounts(accs);
+      setPosts(psts);
+      setCampaigns(cmps);
+    }
+    loadData();
+  }, [workspaceId]);
 
   const pendingApprovals = posts.filter(p => p.status === 'pending_approval');
   const scheduledPosts = posts.filter(p => p.status === 'scheduled');

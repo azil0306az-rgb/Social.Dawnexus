@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Cpu, 
   Key, 
@@ -37,9 +37,14 @@ export const McpConnectionsPage: React.FC = () => {
   const [revokeModalOpen, setRevokeModalOpen] = useState(false);
   const [selectedKeyToRevoke, setSelectedKeyToRevoke] = useState<McpApiKey | null>(null);
 
-  const refreshKeys = () => {
-    setKeys(dataService.getMcpKeys(workspaceId));
+  const refreshKeys = async () => {
+    const list = await dataService.fetchMcpKeys(workspaceId);
+    setKeys(list);
   };
+
+  useEffect(() => {
+    refreshKeys();
+  }, [workspaceId]);
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -47,20 +52,23 @@ export const McpConnectionsPage: React.FC = () => {
     setTimeout(() => setCopiedText(null), 2500);
   };
 
-  const handleCreateKey = () => {
+  const handleCreateKey = async () => {
     if (!newKeyName.trim()) return;
     setIsGeneratingKey(true);
-    const result = dataService.createMcpKey(workspaceId, newKeyName);
-    setCreatedSecretData(result);
-    setNewKeyName('');
-    setIsGeneratingKey(false);
-    refreshKeys();
+    try {
+      const result = await dataService.createMcpKey(workspaceId, newKeyName);
+      setCreatedSecretData(result);
+      setNewKeyName('');
+      await refreshKeys();
+    } finally {
+      setIsGeneratingKey(false);
+    }
   };
 
-  const handleRevokeConfirm = () => {
+  const handleRevokeConfirm = async () => {
     if (!selectedKeyToRevoke) return;
-    dataService.revokeMcpKey(workspaceId, selectedKeyToRevoke.id);
-    refreshKeys();
+    await dataService.revokeMcpKey(workspaceId, selectedKeyToRevoke.id);
+    await refreshKeys();
   };
 
   const mcpEndpointSse = 'https://social.dawnexus.in/mcp/sse';

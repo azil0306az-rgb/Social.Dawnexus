@@ -170,3 +170,4 @@ describe('Dawnexus Social v1.0.0 — Production Verification & Multi-Tenant Test
     assert.ok(enquiriesRes.rows.length > 0, 'Original enquiries table must be healthy');
   });
 });
+

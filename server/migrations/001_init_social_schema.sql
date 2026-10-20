@@ -228,3 +228,4 @@ CREATE INDEX IF NOT EXISTS idx_social_jobs_run ON social_scheduled_jobs(run_at) 
 CREATE INDEX IF NOT EXISTS idx_social_campaigns_ws ON social_campaigns(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_social_mcp_hash ON social_mcp_credentials(key_hash);
 CREATE INDEX IF NOT EXISTS idx_social_audit_ws ON social_audit_logs(workspace_id, created_at DESC);
+

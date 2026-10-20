@@ -120,3 +120,4 @@ export function requireWorkspaceAccess(allowedRoles: ('owner' | 'admin' | 'edito
     }
   };
 }
+
